@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#080d18">
+  <title>Dot Matrix Snake</title>
+  <style>
+    :root {
+      --bg: #080d18; --panel: #111d2e; --cyan: #45f5d2;
+      --green: #9cff6e; --muted: #91a6bd; --dot: #203247;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; padding: 24px;
+      display: grid; place-items: center;
+      color: #eff8ff; font-family: Inter, Segoe UI, Arial, sans-serif;
+      background: radial-gradient(ellipse at 50% 0, #19364c 0, var(--bg) 62%);
+    }
+    .app { width: min(94vw, 680px); }
+    header { display:flex; justify-content:space-between; align-items:end; gap:16px; margin-bottom:16px; }
+    .eyebrow { color:var(--cyan); font-size:.68rem; font-weight:800; letter-spacing:.22em; }
+    h1 { margin:5px 0 0; font-size:clamp(1.8rem,5vw,2.7rem); letter-spacing:-.06em; }
+    .stats { display:flex; gap:9px; }
+    .stat { min-width:82px; padding:9px 13px; text-align:center; border:1px solid #2b4057; border-radius:12px; background:#111d2ecc; }
+    .stat small { display:block; color:var(--muted); font-size:.62rem; letter-spacing:.12em; }
+    .stat strong { display:block; margin-top:3px; color:var(--cyan); font-size:1.25rem; font-variant-numeric:tabular-nums; }
+    .frame { position:relative; padding:10px; border-radius:19px; background:linear-gradient(135deg,#24465a,#101b2b 50%,#2b4358); box-shadow:0 22px 70px #0009; }
+    canvas { display:block; width:100%; aspect-ratio:1; border-radius:11px; background:#091321; }
+    .overlay { position:absolute; inset:10px; display:grid; place-items:center; padding:20px; border-radius:11px; text-align:center; background:#06101bdc; backdrop-filter:blur(5px); }
+    .overlay.hidden { display:none; }
+    .modal { max-width:340px; }
+    .modal h2 { margin:8px 0; font-size:2rem; }
+    .modal p { margin:0 0 18px; color:#a9bbcd; line-height:1.55; }
+    button { border:0; border-radius:10px; padding:11px 22px; background:var(--cyan); color:#041713; font-weight:900; font-size:.9rem; cursor:pointer; }
+    button:hover { filter:brightness(1.1); transform:translateY(-1px); }
+    button:focus-visible { outline:3px solid white; outline-offset:3px; }
+    .toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:14px; color:var(--muted); font-size:.8rem; }
+    kbd { padding:3px 7px; color:#eaf7ff; background:#172538; border:1px solid #30445b; border-radius:5px; }
+    .mobile-controls { display:none; grid-template-columns:repeat(3,52px); grid-template-rows:repeat(2,43px); gap:6px; justify-content:center; margin-top:15px; }
+    .mobile-controls button { padding:0; font-size:1.1rem; }
+    .mobile-controls button:nth-child(1){grid-column:2}
+    .mobile-controls button:nth-child(2){grid-column:1;grid-row:2}
+    .mobile-controls button:nth-child(3){grid-column:2;grid-row:2}
+    .mobile-controls button:nth-child(4){grid-column:3;grid-row:2}
+    .hint { text-align:center; color:var(--muted); font-size:.75rem; margin:12px 0 0; }
+    @media(max-width:560px) {
+      body{padding:14px}.app{width:min(96vw,500px)}header{align-items:start;flex-direction:column}
+      .stats{width:100%}.stat{flex:1}.toolbar{justify-content:center}.keyboard-hint{display:none}
+      .mobile-controls{display:grid}
+    }
+    @media(prefers-reduced-motion:reduce){button:hover{transform:none}}
+  </style>
+</head>
+<body>
+<main class="app">
+  <header>
+    <div><div class="eyebrow">ARCADE / CLASSIC MODE</div><h1>DOT MATRIX SNAKE<span style="color:var(--cyan)">.</span></h1></div>
+    <div class="stats">
+      <div class="stat"><small>SCORE</small><strong id="score">0</strong></div>
+      <div class="stat"><small>BEST</small><strong id="best">0</strong></div>
+    </div>
+  </header>
+
+  <section class="frame">
+    <canvas id="board" width="600" height="600" aria-label="Snake game dot matrix board"></canvas>
+    <div class="overlay" id="overlay">
+      <div class="modal">
+        <div class="eyebrow">READY PLAYER ONE?</div>
+        <h2 id="overlay-title">Let's play.</h2>
+        <p id="overlay-copy">Collect the glowing food to grow longer. Cross the edges to wrap around to the opposite side. Avoid running into yourself.</p>
+        <button id="start-btn">START GAME</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="toolbar">
+    <div class="keyboard-hint">Move with <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> or <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> · <kbd>Space</kbd> pause</div>
+    <button id="pause-btn" type="button">PAUSE</button>
+  </div>
+  <div class="mobile-controls" aria-label="Touch controls">
+    <button type="button" data-dir="up" aria-label="Move up">↑</button>
+    <button type="button" data-dir="left" aria-label="Move left">←</button>
+    <button type="button" data-dir="down" aria-label="Move down">↓</button>
+    <button type="button" data-dir="right" aria-label="Move right">→</button>
+  </div>
+  <p class="hint">Tip: The snake wraps around all four edges. Your tail grows with every bite.</p>
+</main>
+
+<script>
+(() => {
+  const canvas = document.getElementById('board');
+  const ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('score');
+  const bestEl = document.getElementById('best');
+  const overlay = document.getElementById('overlay');
+  const overlayTitle = document.getElementById('overlay-title');
+  const overlayCopy = document.getElementById('overlay-copy');
+  const startBtn = document.getElementById('start-btn');
+  const pauseBtn = document.getElementById('pause-btn');
+
+  // The board is a field of dots, not visible square cells.
+  const DOTS = 30;
+  const STEP_MS = 115;
+  const DOT_SPACING = canvas.width / DOTS;
+  let snake, food, direction, queuedDirection, score, best, timer, running, paused, lastStep;
+
+  best = Number(localStorage.getItem('dotSnakeBest') || 0);
+  bestEl.textContent = best;
+
+  function reset() {
+    snake = [
+      {x: 14, y: 15}, {x: 13, y: 15}, {x: 12, y: 15},
+      {x: 11, y: 15}, {x: 10, y: 15}
+    ];
+    direction = {x: 1, y: 0};
+    queuedDirection = {x: 1, y: 0};
+    score = 0;
+    scoreEl.textContent = score;
+    placeFood();
+    draw();
+  }
+
+  function placeFood() {
+    do {
+      food = {x: Math.floor(Math.random() * DOTS), y: Math.floor(Math.random() * DOTS)};
+    } while (snake.some(part => part.x === food.x && part.y === food.y));
+  }
+
+  function setDirection(name) {
+    if (!running || paused) return;
+    const directions = {
+      up: {x:0,y:-1}, down: {x:0,y:1},
+      left: {x:-1,y:0}, right: {x:1,y:0}
+    };
+    const next = directions[name];
+    if (!next) return;
+    // Prevent an immediate 180-degree turn into the snake's own neck.
+    if (next.x === -direction.x && next.y === -direction.y) return;
+    queuedDirection = next;
+  }
+
+  function update() {
+    direction = queuedDirection;
+    const head = snake[0];
+    // Modulo arithmetic makes the snake re-enter from the opposite edge.
+    const nextHead = {
+      x: (head.x + direction.x + DOTS) % DOTS,
+      y: (head.y + direction.y + DOTS) % DOTS
+    };
+    const eating = nextHead.x === food.x && nextHead.y === food.y;
+    // If not eating, the tail moves away during this tick, so entering its
+    // current position is allowed.
+    const bodyToCheck = eating ? snake : snake.slice(0, -1);
+    if (bodyToCheck.some(part => part.x === nextHead.x && part.y === nextHead.y)) {
+      endGame();
+      return;
+    }
+    snake.unshift(nextHead);
+    if (eating) {
+      score += 10;
+      scoreEl.textContent = score;
+      if (score > best) {
+        best = score;
+        bestEl.textContent = best;
+        localStorage.setItem('dotSnakeBest', best);
+      }
+      placeFood();
+    } else {
+      snake.pop();
+    }
+    draw();
+  }
+
+  function drawDot(x, y, radius, color, glow = 0) {
+    const px = (x + 0.5) * DOT_SPACING;
+    const py = (y + 0.5) * DOT_SPACING;
+    ctx.beginPath();
+    ctx.arc(px, py, radius, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    if (glow) {
+      ctx.shadowBlur = glow;
+      ctx.shadowColor = color;
+    }
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Subtle dot-matrix background.
+    for (let y = 0; y < DOTS; y++) {
+      for (let x = 0; x < DOTS; x++) drawDot(x, y, 1.45, '#203247');
+    }
+
+    // Food orb with a soft glow.
+    drawDot(food.x, food.y, 7.1, '#ff668c', 18);
+    drawDot(food.x, food.y, 2.5, '#fff0f4');
+
+    // Draw the snake as a continuous chain of glowing circular segments.
+    snake.forEach((part, index) => {
+      const t = index / Math.max(1, snake.length - 1);
+      const radius = index === 0 ? 8.2 : 7.1;
+      const color = index === 0 ? '#eafff9' : `hsl(${165 - t * 30}, 88%, ${62 - t * 13}%)`;
+      drawDot(part.x, part.y, radius, color, index === 0 ? 15 : 8);
+    });
+
+    // Small directional eyes make the head easy to identify.
+    const head = snake[0];
+    const cx = (head.x + 0.5) * DOT_SPACING;
+    const cy = (head.y + 0.5) * DOT_SPACING;
+    const eyeOffset = direction.x !== 0 ? {x:direction.x * 3, y:-3} : {x:3, y:direction.y * 3};
+    ctx.fillStyle = '#09201d';
+    ctx.beginPath(); ctx.arc(cx + eyeOffset.x, cy + eyeOffset.y, 1.45, 0, Math.PI*2); ctx.fill();
+  }
+
+  function gameLoop(timestamp) {
+    if (!running || paused) return;
+    if (!lastStep) lastStep = timestamp;
+    if (timestamp - lastStep >= STEP_MS) {
+      update();
+      lastStep = timestamp;
+    }
+    if (running && !paused) timer = requestAnimationFrame(gameLoop);
+  }
+
+  function startGame() {
+    cancelAnimationFrame(timer);
+    reset();
+    running = true;
+    paused = false;
+    lastStep = 0;
+    overlay.classList.add('hidden');
+    pauseBtn.textContent = 'PAUSE';
+    timer = requestAnimationFrame(gameLoop);
+  }
+
+  function endGame() {
+    running = false;
+    cancelAnimationFrame(timer);
+    overlayTitle.textContent = 'Game over!';
+    overlayCopy.textContent = `You scored ${score} points. Give it another run and beat your best.`;
+    startBtn.textContent = 'PLAY AGAIN';
+    overlay.classList.remove('hidden');
+    pauseBtn.textContent = 'PAUSE';
+  }
+
+  function togglePause() {
+    if (!running) return;
+    paused = !paused;
+    if (paused) {
+      cancelAnimationFrame(timer);
+      overlayTitle.textContent = 'Paused';
+      overlayCopy.textContent = 'Take a breather. Your snake is waiting.';
+      startBtn.textContent = 'RESUME';
+      overlay.classList.remove('hidden');
+      pauseBtn.textContent = 'RESUME';
+    } else {
+      overlay.classList.add('hidden');
+      pauseBtn.textContent = 'PAUSE';
+      lastStep = 0;
+      timer = requestAnimationFrame(gameLoop);
+    }
+  }
+
+  startBtn.addEventListener('click', () => {
+    if (running && paused) {
+      paused = false;
+      overlay.classList.add('hidden');
+      pauseBtn.textContent = 'PAUSE';
+      lastStep = 0;
+      timer = requestAnimationFrame(gameLoop);
+    } else {
+      startGame();
+    }
+  });
+  pauseBtn.addEventListener('click', togglePause);
+
+  document.addEventListener('keydown', event => {
+    const keys = {
+      ArrowUp:'up', KeyW:'up', ArrowDown:'down', KeyS:'down',
+      ArrowLeft:'left', KeyA:'left', ArrowRight:'right', KeyD:'right'
+    };
+    if (keys[event.code]) {
+      event.preventDefault();
+      setDirection(keys[event.code]);
+    } else if (event.code === 'Space') {
+      event.preventDefault();
+      if (!running) startGame(); else togglePause();
+    }
+  });
+
+  document.querySelectorAll('[data-dir]').forEach(button => {
+    button.addEventListener('pointerdown', event => {
+      event.preventDefault();
+      setDirection(button.dataset.dir);
+    });
+  });
+
+  // Prevent page scrolling while using touch controls.
+  document.querySelector('.mobile-controls').addEventListener('touchmove', e => e.preventDefault(), {passive:false});
+
+  reset();
+})();
+</script>
+</body>
+</html>
